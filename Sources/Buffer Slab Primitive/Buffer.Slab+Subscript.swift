@@ -1,5 +1,10 @@
-import Ordinal_Primitives_Standard_Library_Integration
 import Affine_Primitives_Standard_Library_Integration
+public import Bit_Vector_Bounded_Primitives
+import Growth_Primitives
+import Ordinal_Primitives_Standard_Library_Integration
+public import Storage_Protocol_Primitives
+public import Store_Protocol_Primitives
+
 // ===----------------------------------------------------------------------===//
 //
 // This source file is part of the swift-primitives open source project
@@ -11,11 +16,9 @@ import Affine_Primitives_Standard_Library_Integration
 //
 // ===----------------------------------------------------------------------===//
 
-import Buffer_Growth_Primitives
-
 // MARK: - Capacity
 
-extension Buffer.Slab where Element: ~Copyable {
+extension Buffer.Slab where S: ~Copyable {
     /// The total number of slots (occupied + vacant).
     @inlinable
     public var capacity: Bit.Index.Count {
@@ -25,21 +28,21 @@ extension Buffer.Slab where Element: ~Copyable {
 
 // MARK: - Read Subscript
 
-extension Buffer.Slab where Element: ~Copyable {
+extension Buffer.Slab where S: ~Copyable {
     /// Borrows the element at the given slot without removing it.
     ///
     /// - Precondition: The slot is occupied.
     @inlinable
-    public subscript(slot: Bit.Index) -> Element {
+    public subscript(slot: Bit.Index) -> S.Element {
         _read {
-            yield unsafe storage.pointer(at: slot.retag(Element.self)).pointee
+            yield storage[slot.retag(S.Element.self)]
         }
     }
 }
 
 // MARK: - Iteration
 
-extension Buffer.Slab where Element: ~Copyable {
+extension Buffer.Slab where S: ~Copyable {
     /// Read-only view for occupied slot iteration.
     ///
     /// Usage: `slab.forEach.occupied { slot in ... }`

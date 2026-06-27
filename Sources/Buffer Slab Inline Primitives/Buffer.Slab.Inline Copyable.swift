@@ -1,36 +1,26 @@
-import Ordinal_Primitives_Standard_Library_Integration
 import Affine_Primitives_Standard_Library_Integration
+public import Finite_Bounded_Primitives
+public import Iterator_Chunk_Primitives
+public import Iterator_Primitive
+import Ordinal_Primitives_Standard_Library_Integration
+
 // MARK: - Copyable Conformances for Slab.Inline
 //
 // Unlike heap-backed Slab.Bounded (always ~Copyable due to Bit.Vector),
 // Slab.Inline uses Header.Static (Copyable), so the type IS Copyable
 // when Element: Copyable.
-
-extension Buffer.Slab.Inline where Element: Copyable {
-
-    /// Reads the element at the given slot without removing it.
-    ///
-    /// - Precondition: The slot is occupied.
-    @inlinable
-    public func peek(at slot: Bit.Index.Bounded<wordCount>) -> Element {
-        return unsafe storage.pointer(at: slot.retag(Element.self)).pointee
-    }
-}
-
-extension Buffer.Slab.Inline where Element: Copyable {
-
-    /// Reads the element at the given slot without removing it.
-    ///
-    /// Package-scoped unbounded overload — narrows internally for Small delegation.
-    @inlinable
-    package func peek(at slot: Bit.Index) -> Element {
-        peek(at: Bit.Index.Bounded<wordCount>(slot)!)
-    }
-}
+//
+// refined-C ([MOD-004]/[MOD-036]): the `Sequence.Protocol` conformance is isolated here; its
+// `makeIterator` reaches the type module through the `_occupiedElements()` `package` window
+// ([MOD-037]) — an owned `[S.Element]` snapshot, never the box / a raw base pointer. The
+// `peek(at:)` Copyable instance methods co-locate with storage in the type module.
 
 // MARK: - Array Initialization
 
-extension Buffer.Slab.Inline where Element: Copyable {
+// `S: ~Copyable, S.Element: Copyable`: the carrier is a phantom (`.Inline` stores
+// `Store.Inline<S.Element, wordCount>`), so the element-copy arm constrains only the
+// element — the move-only `Storage.Contiguous` carrier must be admitted. ([MEM-COPY-004])
+extension Buffer.Slab.Inline where S: ~Copyable, S.Element: Copyable {
 
     /// Creates an inline slab buffer populated with the given elements.
     ///
@@ -39,11 +29,14 @@ extension Buffer.Slab.Inline where Element: Copyable {
     /// - Parameter elements: The elements to populate the buffer with.
     /// - Throws: ``Error/capacityExceeded`` if `elements.count` exceeds `wordCount`.
     @inlinable
-    public init(_ elements: [Element]) throws(Self.Error) {
+    public init(_ elements: [S.Element]) throws(Self.Error) {
         guard elements.count <= wordCount else { throw .capacityExceeded }
         var buffer = Self()
         for (i, element) in elements.enumerated() {
-            buffer.insert(element, at: Bit.Index.Bounded<wordCount>(Bit.Index(Ordinal(UInt(i))))!)
+            guard let slot = Bit.Index.Bounded<wordCount>(Bit.Index(Ordinal(UInt(i)))) else {
+                preconditionFailure("element index exceeds wordCount")
+            }
+            buffer.insert(element, at: slot)
         }
         self = buffer
     }
@@ -51,78 +44,66 @@ extension Buffer.Slab.Inline where Element: Copyable {
 
 // MARK: - Sequence.Protocol
 
-extension Buffer.Slab.Inline: @unsafe Sequence.`Protocol` where Element: Copyable {
+extension Buffer.Slab.Inline: Iterable where S: ~Copyable, S.Element: Copyable {
     /// Iterator over slab inline buffer elements.
     ///
-    /// Uses pointer-based iteration with bitmap occupancy checking.
-    /// The iterator is only valid while the source buffer exists.
-    @unsafe public struct Iterator: Sequence.Iterator.`Protocol`, IteratorProtocol, @unsafe @unchecked Sendable {
+    /// Holding-patch shape: iterates an owned, slot-ordered snapshot of the occupied
+    /// elements (built once at `makeIterator` via the `_occupiedElements()` package
+    /// window). `Store.Inline` vends no public base pointer, so the prior cached-pointer
+    /// iterator is replaced by this snapshot. INTERIM DEBT (eager + allocates) — dissolves
+    /// with the deferred occupancy decision (HANDOFF-sparse-occupancy-placement.md).
+    public struct Iterator: Iterator_Primitive.Iterator.`Protocol`, IteratorProtocol, @unchecked Sendable {
+        // WHY: Category B — value-semantic owned snapshot. `@unchecked` bridges the
+        // WHY: `[S.Element]` (unconstrained-Copyable) Sendable-inference gap, preserving
+        // WHY: the iterator's prior Sendable surface; ownership is unique (a moved copy).
         @usableFromInline
-        let base: UnsafePointer<Element>
+        let elements: [S.Element]
         @usableFromInline
-        let bitmap: Bit.Vector.Static<wordCount>
-        @usableFromInline
-        var current: Bit.Index
-        @usableFromInline
-        let end: Bit.Index
-        @usableFromInline
-        var _element: Element? = nil
+        var position: Int
 
         @inlinable
-        init(base: UnsafePointer<Element>, bitmap: Bit.Vector.Static<wordCount>, end: Bit.Index) {
-            unsafe (self.base = base)
-            unsafe (self.bitmap = bitmap)
-            unsafe (self.current = .zero)
-            unsafe (self.end = end)
-        }
-
-        @_lifetime(&self)
-        @inlinable
-        public mutating func nextSpan(maximumCount: Cardinal) -> Span<Element> {
-            let ptr = unsafe withUnsafeMutablePointer(to: &_element) { p in
-                unsafe UnsafePointer<Element>(
-                    unsafe UnsafeRawPointer(p).assumingMemoryBound(to: Element.self)
-                )
-            }
-            guard maximumCount > .zero else {
-                let span = unsafe Span(_unsafeStart: ptr, count: 0)
-                return unsafe _overrideLifetime(span, mutating: &self)
-            }
-            guard let value = unsafe next() else {
-                let span = unsafe Span(_unsafeStart: ptr, count: 0)
-                return unsafe _overrideLifetime(span, mutating: &self)
-            }
-            unsafe (_element = value)
-            let span = unsafe Span(_unsafeStart: ptr, count: 1)
-            return unsafe _overrideLifetime(span, mutating: &self)
-        }
-
-        @inlinable
-        public mutating func next() -> Element? {
-            while unsafe current < end {
-                let slot = unsafe current
-                unsafe (current += .one)
-                if unsafe bitmap[slot] {
-                    return unsafe base[slot]
-                }
-            }
-            return nil
+        package init(elements: [S.Element]) {
+            self.elements = elements
+            self.position = 0
         }
     }
 
-    @inlinable
+    /// Returns an iterator over the occupied elements in slot order.
     public borrowing func makeIterator() -> Iterator {
-        let base: UnsafePointer<Element> = unsafe storage.pointer(at: Index<Element>.Bounded<wordCount>(.zero)!)
-        let end = Bit.Index.Count(UInt(wordCount)).map(Ordinal.init)
-        return unsafe Iterator(base: base, bitmap: header.bitmap, end: end)
+        // [MOD-037]: reach occupied elements through the type module's `package` window so
+        // this cold conformance never touches Inline's internal storage/header. Non-inlinable
+        // ([MOD-036]): a public @inlinable body must not reference the `package` window.
+        Iterator(elements: _occupiedElements())
+    }
+
+    // Iterable's span witness: wrap the scalar snapshot cursor in the generator materialize
+    // adapter (the lent span is over the adapter's OWNED slot, not the @_rawLayout storage).
+    /// The materializing iterator type backing the `Iterable` conformance.
+    @_implements(Iterable,Iterator)
+    public typealias IterableIterator = Iterator_Primitive.Iterator.Materializing<Iterator>
+
+    /// Returns the materializing iterator for the `Iterable` conformance.
+    @_implements(Iterable,makeIterator())
+    public borrowing func iterableMakeIterator() -> Iterator_Primitive.Iterator.Materializing<Iterator> {
+        Iterator_Primitive.Iterator.Materializing(Iterator(elements: _occupiedElements()))
+    }
+}
+
+extension Buffer.Slab.Inline.Iterator where S: ~Copyable, S.Element: Copyable {
+    /// Returns the next occupied element, or `nil` when the iterator is exhausted.
+    @inlinable
+    public mutating func next() -> S.Element? {
+        guard position < elements.count else { return nil }
+        defer { position += 1 }
+        return elements[position]
     }
 }
 
 // MARK: - Swift.Sequence
-// Blocked on Storage.Inline conditional Copyable (INV-INLINE-004a).
+// Blocked on Store.Inline conditional Copyable (INV-INLINE-004a).
 // Uncomment when @_rawLayout is replaced with conditionally-Copyable InlineArray.
 //
-// extension Buffer.Slab.Inline: Swift.Sequence where Element: Copyable {
+// extension Buffer.Slab.Inline: Swift.Sequence where S: Copyable {
 //     @inlinable
 //     public var underestimatedCount: Int { Int(bitPattern: header.bitmap.popcount) }
 // }

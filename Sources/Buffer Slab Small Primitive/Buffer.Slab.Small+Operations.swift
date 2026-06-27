@@ -1,14 +1,19 @@
-import Ordinal_Primitives_Standard_Library_Integration
 import Affine_Primitives_Standard_Library_Integration
+public import Finite_Bounded_Primitives
+public import Memory_Allocator_Primitive
+import Ordinal_Primitives_Standard_Library_Integration
+public import Storage_Contiguous_Primitives
+public import Storage_Protocol_Primitives
+
 // MARK: - Extensions for Slab.Small (declared in Core)
 
-extension Buffer.Slab.Small where Element: ~Copyable {
+extension Buffer.Slab.Small where S: ~Copyable {
 
     /// Creates an empty small slab buffer with inline storage.
     @inlinable
     public init() {
         self.init(
-            _storage: .inline(Buffer<Element>.Slab.Inline<inlineCapacity>())
+            _storage: .inline(Buffer.Slab.Inline<inlineCapacity>())
         )
     }
 
@@ -32,6 +37,15 @@ extension Buffer.Slab.Small where Element: ~Copyable {
         }
     }
 
+    /// The number of elements logically held by the buffer.
+    ///
+    /// A slab counts in the bitmap (slot) domain, so `count` equals the live-element
+    /// cardinality reported by ``occupancy`` (a `Bit.Index.Count`). This is the
+    /// ``Buffer/`Protocol``` `count` witness — its domain (`Bit.Index.Count`) overrides
+    /// the protocol's element-domain default.
+    @inlinable
+    public var count: Bit.Index.Count { occupancy }
+
     /// Whether no slots are occupied.
     @inlinable
     public var isEmpty: Bool {
@@ -54,8 +68,15 @@ extension Buffer.Slab.Small where Element: ~Copyable {
     @inlinable
     public func isOccupied(at slot: Bit.Index) -> Bool {
         switch _storage {
-        case .heap(let buf): return buf.header.isOccupied(at: slot)
-        case .inline(let buf): return buf.isOccupied(at: Bit.Index.Bounded<inlineCapacity>(slot)!)
+        // refined-C: base `Buffer.Slab` exposes a public `isOccupied(at:)`, so reach it
+        // directly rather than through the now-internal `header` ([MOD-036]).
+        case .heap(let buf): return buf.isOccupied(at: slot)
+
+        case .inline(let buf):
+            guard let bounded = Bit.Index.Bounded<inlineCapacity>(slot) else {
+                preconditionFailure("slot exceeds inlineCapacity")
+            }
+            return buf.isOccupied(at: bounded)
         }
     }
 
@@ -73,14 +94,16 @@ extension Buffer.Slab.Small where Element: ~Copyable {
     /// Inserts an element at the given slot.
     ///
     /// If inline storage is full, spills to heap automatically using moves.
+    /// The heap spill target is the common-tower `Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E>` substrate.
     ///
     /// - Precondition: The slot is not occupied.
     @inlinable
-    public mutating func insert(_ element: consuming Element, at slot: Bit.Index) {
+    public mutating func insert<E>(_ element: consuming E, at slot: Bit.Index) where S == Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E> {
         switch _storage {
         case .heap(var buf):
             buf.insert(consume element, at: slot)
             self = Self(_storage: .heap(consume buf))
+
         case .inline(var buf):
             if !buf.isFull {
                 buf.insert(consume element, at: slot)
@@ -99,12 +122,13 @@ extension Buffer.Slab.Small where Element: ~Copyable {
     ///
     /// - Precondition: The slot is occupied.
     @inlinable
-    public mutating func remove(at slot: Bit.Index) -> Element {
+    public mutating func remove(at slot: Bit.Index) -> S.Element {
         switch _storage {
         case .heap(var buf):
             let element = buf.remove(at: slot)
             self = Self(_storage: .heap(consume buf))
             return element
+
         case .inline(var buf):
             let element = buf.remove(at: slot)
             self = Self(_storage: .inline(consume buf))
@@ -116,12 +140,13 @@ extension Buffer.Slab.Small where Element: ~Copyable {
     ///
     /// - Precondition: The slot is occupied.
     @inlinable
-    public mutating func update(at slot: Bit.Index, with element: consuming Element) -> Element {
+    public mutating func update(at slot: Bit.Index, with element: consuming S.Element) -> S.Element {
         switch _storage {
         case .heap(var buf):
             let old = buf.update(at: slot, with: consume element)
             self = Self(_storage: .heap(consume buf))
             return old
+
         case .inline(var buf):
             let old = buf.update(at: slot, with: consume element)
             self = Self(_storage: .inline(consume buf))
@@ -137,8 +162,9 @@ extension Buffer.Slab.Small where Element: ~Copyable {
         switch _storage {
         case .heap(var buf):
             buf.removeAll()
-            self = Self(_storage: .inline(Buffer<Element>.Slab.Inline<inlineCapacity>()))
+            self = Self(_storage: .inline(Buffer.Slab.Inline<inlineCapacity>()))
             _ = consume buf
+
         case .inline(var buf):
             buf.removeAll()
             self = Self(_storage: .inline(consume buf))
@@ -148,55 +174,56 @@ extension Buffer.Slab.Small where Element: ~Copyable {
     // MARK: - Spill
 
     /// Moves inline elements to heap storage and activates heap mode.
+    ///
+    /// The heap spill target is the common-tower `Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E>` substrate.
     @usableFromInline
-    mutating func _spillToHeapMoving() {
+    mutating func _spillToHeapMoving<E>() where S == Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E> {
         switch _storage {
         case .heap(let buf):
             self = Self(_storage: .heap(consume buf))
             return
-        case .inline(var buf):
-            let newCapacity = Index<Element>.Count(UInt(inlineCapacity * 2))
-            let newStorage = Storage<Element>.Slab(minimumCapacity: newCapacity)
-            var newHeader = Buffer<Element>.Slab.Header(
-                capacity: newStorage.slotCapacity.retag(Bit.self)
-            )
 
-            // Move occupied elements and transfer bitmap state
+        case .inline(var buf):
+            let newCapacity = Index<E>.Count(UInt(inlineCapacity * 2))
+            var heap = Buffer.Slab(minimumCapacity: newCapacity)
+
+            // [MOD-037]: drain the inline buffer through its PUBLIC slot API and re-insert
+            // each occupied element at the SAME slot index on the heap, preserving the sparse
+            // bitmap positions. Reaching the Inline variant only through its public
+            // `isOccupied`/`remove` surface keeps Inline's storage internals
+            // `@usableFromInline internal` (refined-C) rather than pinned to `package` —
+            // the Small satellite no longer touches `buf.storage`/`buf.header` or the
+            // static `moveSlotToHeap` helper.
             var slot: Bit.Index = .zero
             let end = Bit.Index.Count(UInt(inlineCapacity)).map(Ordinal.init)
             while slot < end {
-                if buf.header.bitmap[slot] {
-                    Buffer<Element>.Slab.Inline<inlineCapacity>.moveSlotToHeap(
-                        storage: &buf.storage,
-                        heapStorage: newStorage.heap,
-                        at: slot
-                    )
-                    newHeader.bitmap[slot] = true
+                guard let bounded = Bit.Index.Bounded<inlineCapacity>(slot) else {
+                    preconditionFailure("slot exceeds inlineCapacity")
+                }
+                if buf.isOccupied(at: bounded) {
+                    heap.insert(buf.remove(at: bounded), at: slot)
                 }
                 slot += .one
             }
 
-            // Sync bitmap to storage for deinit correctness
-            newStorage.bitmap = newHeader.bitmap
-
-            // Reset inline state
-            buf.header = .init()
-            self = Self(_storage: .heap(Buffer<Element>.Slab(header: newHeader, storage: newStorage)))
-        // buf goes out of scope — deinit runs on empty state
+            self = Self(_storage: .heap(consume heap))
+        // buf goes out of scope — deinit runs on empty (drained) state
         }
     }
 }
 
 // MARK: - Sequence.Drain.Protocol
 
-extension Buffer.Slab.Small: Sequence.Drain.`Protocol` where Element: ~Copyable {
+extension Buffer.Slab.Small: Sequence.Drain.`Protocol` where S: ~Copyable {
+    /// Removes every occupied element, consuming each through `body`.
     @inlinable
-    public mutating func drain(_ body: (consuming Element) -> Void) {
+    public mutating func drain(_ body: (consuming S.Element) -> Void) {
         switch _storage {
         case .heap(var buf):
             buf.drain(body)
-            self = Self(_storage: .inline(Buffer<Element>.Slab.Inline<inlineCapacity>()))
+            self = Self(_storage: .inline(Buffer.Slab.Inline<inlineCapacity>()))
             _ = consume buf
+
         case .inline(var buf):
             buf.drain(body)
             self = Self(_storage: .inline(consume buf))
@@ -204,11 +231,10 @@ extension Buffer.Slab.Small: Sequence.Drain.`Protocol` where Element: ~Copyable 
     }
 }
 
-// MARK: - Sequence.Clearable — not applicable (Slab.Small is never Copyable)
-
 // MARK: - Property.Inout (.drain)
 
-extension Buffer.Slab.Small where Element: ~Copyable {
+extension Buffer.Slab.Small where S: ~Copyable {
+    /// In-place accessor that drains the buffer through the `Sequence.Drain` capability.
     @inlinable
     public var drain: Property<Sequence.Drain, Self>.Inout {
         mutating _read {

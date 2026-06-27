@@ -1,135 +1,104 @@
-import Ordinal_Primitives_Standard_Library_Integration
 import Affine_Primitives_Standard_Library_Integration
+public import Bit_Vector_Bounded_Primitives
 import Index_Primitives
-import Storage_Slab_Primitives
+import Ordinal_Primitives_Standard_Library_Integration
+public import Storage_Protocol_Primitives
+public import Store_Protocol_Primitives
 
-extension Buffer where Element: ~Copyable {
+extension Buffer where S: Store.`Protocol`, S: ~Copyable {
 
     // MARK: - Slab
 
-    /// A dynamic-capacity slab buffer backed by heap storage.
+    /// A sparse-occupancy slab buffer over a plain element-storage substrate.
     ///
-    /// Unlike Ring and Linear, Slab's `storage.initialization` stays `.empty` —
-    /// the bitmap is the source of truth. **deinit MUST explicitly iterate
-    /// `header.bitmap.ones` and deinitialize each occupied slot.**
+    /// `Buffer<S>.Slab` is the sparse sibling of Ring and Linear. The
+    /// occupancy bitmap AND the cleanup oracle live HERE, in a private
+    /// reference `Box` — bitmap-as-truth is the Buffer tier's one concern,
+    /// and the bd04f32 evidence record proves the bitmap-driven teardown
+    /// requires a CLASS `deinit`. The substrate `S` is plain element storage
+    /// (`Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Entity>>.Slab` is the common tower) reached
+    /// through the element-store seam.
+    ///
+    /// ## Value semantics
+    ///
+    /// `Buffer.Slab` is **move-only**. CoW (`ensureUnique`) is withdrawn at the
+    /// storage tier: the element-free `Storage.Contiguous` is unconditionally
+    /// `~Copyable` with an explicit `copy()`, so the slab no longer shares a box
+    /// across copies and is exclusively owned. An independent deep copy is
+    /// obtained explicitly via ``clone()`` (occupancy-aware: only occupied slots
+    /// are copied).
+    ///
+    /// ## Teardown
+    ///
+    /// The `Box` is retained (it is the bitmap-driven deinit teardown oracle,
+    /// independent of CoW): `Box.deinit` walks `header.bitmap.ones` and moves
+    /// each occupied slot out of the substrate — the substrate's own
+    /// tracked-range cleanup never sees these untracked initializations.
     public struct Slab: ~Copyable {
-        // MARK: - Header
 
-        /// Cursor state for a slab (sparse slot) buffer.
-        ///
-        /// Uses a `Bit.Vector` bitmap as the source of truth for which slots
-        /// are occupied. `storage.initialization` stays `.empty` — the bitmap
-        /// drives all cleanup.
-        ///
-        /// Copyable because `Bit.Vector.Bounded` (ContiguousArray-backed) is Copyable.
-        ///
-        /// Blueprint: `Experiments/initialization-consistency/Sources/main.swift:249-311`
-        public struct Header {
-            /// Bitmap tracking which slots are occupied.
-            public var bitmap: Bit.Vector.Bounded
+        // MARK: - The relocated cleanup oracle
 
-            /// Creates a header with the given slot capacity, all vacant.
-            @inlinable
-            public init(capacity: Bit.Index.Count) {
-                self.bitmap = try! Bit.Vector.Bounded(capacity: capacity, count: capacity)
-            }
-
-            // MARK: - Header.Static
-
-            /// Compile-time word count slab header using `Bit.Vector.Static`.
-            ///
-            /// Unlike `Buffer.Slab.Header` which uses `Bit.Vector` (~Copyable),
-            /// this type uses `Bit.Vector.Static<wordCount>` which IS Copyable.
-            /// This means types using this header CAN be Copyable when their
-            /// elements are Copyable.
-            public struct Static<let wordCount: Int>: Copyable, Sendable {
-                /// Bitmap tracking which slots are occupied.
-                public var bitmap: Bit.Vector.Static<wordCount>
-
-                /// Creates a header with all slots vacant.
-                @inlinable
-                public init() {
-                    self.bitmap = .init()
-                }
-            }
-        }
-
-        // MARK: - Inline (Fixed-Capacity, Stack-Allocated)
-
-        /// A fixed-capacity slab buffer backed by inline (stack-allocated) storage.
-        ///
-        /// Uses `Storage<Element>.Inline<wordCount>` for stack-based allocation
-        /// and `Header.Static<wordCount>` for the bitmap.
-        ///
-        /// Element cleanup is handled by `Storage.Inline`'s deinit, which
-        /// iterates its bitvector and deinitializes all tracked elements.
-        /// The bitmap and `Storage.Inline._slots` track identical state
-        /// because all mutations go through tracked accessors
-        /// (`storage.initialize(to:at:)`, `storage.move(at:)`,
-        /// `storage.deinitialize(at:)`).
-        public struct Inline<let wordCount: Int>: ~Copyable {
+        @usableFromInline
+        internal final class Box {
             @usableFromInline
-            package var header: Header.Static<wordCount>
+            internal var header: Header
 
             @usableFromInline
-            package var storage: Storage<Element>.Inline<wordCount>
+            internal var storage: S
 
-            @inlinable
-            package init(
-                header: Header.Static<wordCount>,
-                storage: consuming Storage<Element>.Inline<wordCount>
-            ) {
+            @usableFromInline
+            internal init(header: Header, storage: consuming S) {
                 self.header = header
                 self.storage = storage
             }
 
-            /// Errors that can occur during inline slab buffer operations.
-            public enum Error: Swift.Error, Sendable, Equatable {
-                /// The number of elements exceeds the buffer's capacity.
-                case capacityExceeded
+            deinit {
+                header.bitmap.ones.forEach { bitIndex in
+                    _ = storage.move(at: bitIndex.retag(S.Element.self))
+                }
             }
-
-            // No deinit — cleanup delegated to Storage.Inline's deinit
-            // via _slots bitvector. Buffer.Slab.Inline must NOT have its own
-            // deinit: Storage.Inline's deinit also fires during member destruction,
-            // which would cause double-free if this type deinitializes elements
-            // via raw pointers that don't clear _slots bits.
         }
 
-        // MARK: - Slab Fields
-
         @usableFromInline
-        package var header: Header
+        internal var box: Box
 
+        /// In-place view of the box's header.
+        ///
+        /// Reads and mutations route through the reference; the satellite operations
+        /// modules reach occupancy state through this forwarder (which keeps the
+        /// per-slot inout threading the static ops expect).
         @usableFromInline
-        package var storage: Storage<Element>.Slab
+        internal var header: Header {
+            @inlinable _read { yield box.header }
+            @inlinable _modify { yield &box.header }
+        }
+
+        /// In-place view of the box's storage substrate.
+        ///
+        /// See ``header``.
+        @usableFromInline
+        internal var storage: S {
+            @inlinable _read { yield box.storage }
+            @inlinable _modify { yield &box.storage }
+        }
 
         @inlinable
-        package init(header: Header, storage: Storage<Element>.Slab) {
-            self.header = header
-            self.storage = storage
+        package init(header: Header, storage: consuming S) {
+            self.box = Box(header: header, storage: storage)
         }
-
-        // No deinit — Storage.Slab handles element cleanup via bitmap iteration
     }
 }
 
-extension Buffer.Slab: Copyable where Element: Copyable {}
+// MARK: - Conditional Conformances (Slab)
+
 /// Sendable conformance for `Buffer.Slab`.
 ///
 /// ## Safety Invariant
 ///
-/// `Buffer.Slab` is `~Copyable` and owns `Storage.Slab`. Single ownership
-/// enforced; cross-thread transfer is a move.
-///
-/// ## Intended Use
-///
-/// - Transferring a slab-backed buffer to a worker thread.
+/// `Buffer.Slab` is `~Copyable` and owns its box exclusively. Single
+/// ownership enforced; cross-thread transfer is a move.
 ///
 /// ## Non-Goals
 ///
 /// - Not a shared concurrent slab; external synchronization required.
-extension Buffer.Slab: @unsafe @unchecked Sendable where Element: Sendable {}
-
-// Copyable suppressed per INV-INLINE-004a.
-extension Buffer.Slab.Inline: Sendable where Element: Sendable {}
+extension Buffer.Slab: @unsafe @unchecked Sendable where S: Sendable {}

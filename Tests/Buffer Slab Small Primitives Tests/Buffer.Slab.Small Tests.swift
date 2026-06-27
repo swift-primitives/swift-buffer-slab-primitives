@@ -1,13 +1,27 @@
 import Buffer_Slab_Primitives_Test_Support
-import Buffer_Slab_Inline_Primitives
+import Buffer_Slab_Small_Primitives
+import Memory_Allocator_Primitive
+import Memory_Heap_Primitives
+import Storage_Contiguous_Primitives
 import Testing
 
-@Suite("Buffer.Slab.Small")
+// RELEASE-GUARD (swift-issue-inlinearray-class-field-write-elision): `.Small`'s inline arm
+// is `Buffer.Slab.Inline`, whose occupancy-bitmap writes are elided under `-O`. These tests
+// exercise the inline arm (and the inline→heap spill transition), so they pass in release only
+// by luck — runs in DEBUG, skips under `-O`, pending HANDOFF-sparse-occupancy-placement.md.
+// (`.Small`'s heap arm is `Buffer.Slab`, covered in release by the base "Buffer.Slab" suites.)
+@Suite(
+    "Buffer.Slab.Small",
+    .disabled(
+        if: !_isDebugAssertConfiguration(),
+        "release-blocked: swift-issue-inlinearray-class-field-write-elision (inline arm); pending HANDOFF-sparse-occupancy-placement.md"
+    )
+)
 struct SlabSmallTests {
 
     @Test
     func `init creates empty inline slab`() {
-        let buffer = Buffer<Int>.Slab.Small<4>()
+        let buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<4>()
         #expect(buffer.isEmpty == true)
         #expect(buffer.occupancy == .zero)
         #expect(buffer.isFull == false)
@@ -16,7 +30,7 @@ struct SlabSmallTests {
 
     @Test
     func `insert and remove in inline mode`() {
-        var buffer = Buffer<Int>.Slab.Small<4>()
+        var buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<4>()
         buffer.insert(42, at: 0)
         #expect(buffer.occupancy == 1)
         #expect(buffer.isSpilled == false)
@@ -28,7 +42,7 @@ struct SlabSmallTests {
 
     @Test
     func `sparse occupancy in inline mode`() {
-        var buffer = Buffer<Int>.Slab.Small<4>()
+        var buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<4>()
         buffer.insert(10, at: 0)
         buffer.insert(20, at: 2)
         #expect(buffer.occupancy == 2)
@@ -39,7 +53,7 @@ struct SlabSmallTests {
 
     @Test
     func `spill to heap when inline is full`() {
-        var buffer = Buffer<Int>.Slab.Small<2>()
+        var buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<2>()
         buffer.insert(10, at: 0)
         buffer.insert(20, at: 1)
         #expect(buffer.isFull == true)
@@ -53,7 +67,7 @@ struct SlabSmallTests {
 
     @Test
     func `elements preserved after spill`() {
-        var buffer = Buffer<Int>.Slab.Small<2>()
+        var buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<2>()
         buffer.insert(10, at: 0)
         buffer.insert(20, at: 1)
         buffer.insert(30, at: 2)
@@ -66,7 +80,7 @@ struct SlabSmallTests {
 
     @Test
     func `remove in heap mode`() {
-        var buffer = Buffer<Int>.Slab.Small<2>()
+        var buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<2>()
         buffer.insert(10, at: 0)
         buffer.insert(20, at: 1)
         buffer.insert(30, at: 2)
@@ -79,7 +93,7 @@ struct SlabSmallTests {
 
     @Test
     func `update in inline mode`() {
-        var buffer = Buffer<Int>.Slab.Small<4>()
+        var buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<4>()
         buffer.insert(10, at: 0)
 
         let old = buffer.update(at: 0, with: 99)
@@ -89,7 +103,7 @@ struct SlabSmallTests {
 
     @Test
     func `update in heap mode`() {
-        var buffer = Buffer<Int>.Slab.Small<2>()
+        var buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<2>()
         buffer.insert(10, at: 0)
         buffer.insert(20, at: 1)
         buffer.insert(30, at: 2)
@@ -101,7 +115,7 @@ struct SlabSmallTests {
 
     @Test
     func `firstVacant in inline mode`() {
-        var buffer = Buffer<Int>.Slab.Small<4>()
+        var buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<4>()
         buffer.insert(10, at: 0)
         buffer.insert(20, at: 1)
 
@@ -111,7 +125,7 @@ struct SlabSmallTests {
 
     @Test
     func `firstVacant in heap mode`() {
-        var buffer = Buffer<Int>.Slab.Small<2>()
+        var buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<2>()
         buffer.insert(10, at: 0)
         buffer.insert(20, at: 1)
         buffer.insert(30, at: 2)
@@ -123,7 +137,7 @@ struct SlabSmallTests {
 
     @Test
     func `removeAll resets to inline mode`() {
-        var buffer = Buffer<Int>.Slab.Small<2>()
+        var buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<2>()
         buffer.insert(10, at: 0)
         buffer.insert(20, at: 1)
         buffer.insert(30, at: 2)
@@ -136,7 +150,7 @@ struct SlabSmallTests {
 
     @Test
     func `removeAll in inline mode`() {
-        var buffer = Buffer<Int>.Slab.Small<4>()
+        var buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<4>()
         buffer.insert(10, at: 0)
         buffer.insert(20, at: 2)
         buffer.removeAll()
@@ -147,7 +161,7 @@ struct SlabSmallTests {
 
     @Test
     func `drain removes all elements`() {
-        var buffer = Buffer<Int>.Slab.Small<2>()
+        var buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<2>()
         buffer.insert(10, at: 0)
         buffer.insert(20, at: 1)
         buffer.insert(30, at: 2)
@@ -160,7 +174,7 @@ struct SlabSmallTests {
 
     @Test
     func `drain in inline mode`() {
-        var buffer = Buffer<Int>.Slab.Small<4>()
+        var buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<4>()
         buffer.insert(10, at: 0)
         buffer.insert(20, at: 3)
 
@@ -172,7 +186,7 @@ struct SlabSmallTests {
 
     @Test
     func `peek reads without removing`() {
-        var buffer = Buffer<Int>.Slab.Small<4>()
+        var buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<4>()
         buffer.insert(42, at: 1)
 
         #expect(buffer.peek(at: 1) == 42)
@@ -181,7 +195,7 @@ struct SlabSmallTests {
 
     @Test
     func `slot reuse after removal`() {
-        var buffer = Buffer<Int>.Slab.Small<4>()
+        var buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<4>()
         buffer.insert(10, at: 1)
         _ = buffer.remove(at: 1)
         buffer.insert(20, at: 1)
@@ -190,7 +204,7 @@ struct SlabSmallTests {
 
     @Test
     func `deinit cleans up inline mode`() {
-        var buffer: Buffer<Int>.Slab.Small<4>? = Buffer<Int>.Slab.Small<4>()
+        var buffer: Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<4>? = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<4>()
         buffer!.insert(10, at: 0)
         buffer!.insert(20, at: 2)
         buffer = nil
@@ -199,7 +213,7 @@ struct SlabSmallTests {
 
     @Test
     func `deinit cleans up heap mode`() {
-        var buffer: Buffer<Int>.Slab.Small<2>? = Buffer<Int>.Slab.Small<2>()
+        var buffer: Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<2>? = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Small<2>()
         buffer!.insert(10, at: 0)
         buffer!.insert(20, at: 1)
         buffer!.insert(30, at: 2)

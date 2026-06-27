@@ -1,15 +1,16 @@
-import Ordinal_Primitives_Standard_Library_Integration
 import Affine_Primitives_Standard_Library_Integration
+public import Growth_Primitives
+import Ordinal_Primitives_Standard_Library_Integration
+
 //
-//  Buffer.Slab.Header.swift
+//  Buffer.Slab.Header.Static.swift
 //  swift-buffer-primitives
 //
 //  Created by Coen ten Thije Boonkkamp on 04/02/2026.
 //
 
-import Buffer_Growth_Primitives
+extension Buffer.Slab.Header.Static where S: ~Copyable {
 
-extension Buffer.Slab.Header where Element: ~Copyable {
     /// The number of occupied slots.
     @inlinable
     public var occupancy: Bit.Index.Count {
@@ -19,13 +20,13 @@ extension Buffer.Slab.Header where Element: ~Copyable {
     /// Whether no slots are occupied.
     @inlinable
     public var isEmpty: Bool {
-        bitmap.popcount == .zero
+        bitmap.isEmpty
     }
 
     /// Whether all slots are occupied.
     @inlinable
     public var isFull: Bool {
-        bitmap.popcount >= bitmap.capacity.maximum
+        bitmap.isFull
     }
 
     /// Checks whether a specific slot is occupied.
