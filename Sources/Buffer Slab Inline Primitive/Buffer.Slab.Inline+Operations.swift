@@ -30,14 +30,14 @@ extension Buffer.Slab.Inline where S: ~Copyable {
     @inlinable
     public var occupancy: Bit.Index.Count { box.occupancy }
 
-    /// The number of elements logically held by the buffer.
+    /// The number of elements logically held by the buffer, in the element domain.
     ///
-    /// A slab counts in the bitmap (slot) domain, so `count` equals the live-element
-    /// cardinality reported by ``occupancy`` (a `Bit.Index.Count`). This is the
-    /// ``Buffer/`Protocol``` `count` witness — its domain (`Bit.Index.Count`) overrides
-    /// the protocol's element-domain default.
+    /// A slab's native ledger counts occupied bitmap slots (``occupancy``, a
+    /// `Bit.Index.Count`). M7 re-tags that into the concrete element domain at this
+    /// ``Buffer/`Protocol``` `count` witness — one occupied slot IS one live element,
+    /// a numerically-sound phantom-label change (`.retag(Element.self)`).
     @inlinable
-    public var count: Bit.Index.Count { box.occupancy }
+    public var count: Index<Element>.Count { box.occupancy.retag(Element.self) }
 
     /// Whether no slots are occupied.
     @inlinable
