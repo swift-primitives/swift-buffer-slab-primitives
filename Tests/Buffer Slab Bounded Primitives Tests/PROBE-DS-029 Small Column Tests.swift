@@ -29,7 +29,7 @@ struct SlabBoundedSmallColumnProbeTests {
 
         // Occupancy walk over the fixed capacity via `isOccupied`.
         var occupied = 0
-        for raw in 0 ..< 8 where buffer.isOccupied(at: Bit.Index(Ordinal(UInt(raw)))) {
+        for raw in 0..<8 where buffer.isOccupied(at: Bit.Index(Ordinal(UInt(raw)))) {
             occupied += 1
         }
         #expect(occupied == 3)

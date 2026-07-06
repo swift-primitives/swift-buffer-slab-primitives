@@ -25,8 +25,9 @@ public import Buffer_Protocol_Primitives
 /// part of this conformance. The banked `where S: ~Copyable` conformance is
 /// preserved.
 extension Buffer.Slab: Buffer.`Protocol` where S: ~Copyable {
-    /// The substrate's element type. (M7: `count` is the concrete
-    /// `Index<Element>.Count`, re-tagged from the bitmap-domain `occupancy`;
-    /// the former `Count` associated type is gone.)
+    /// The substrate's element type.
+    ///
+    /// M7: `count` is the concrete `Index<Element>.Count`, re-tagged from the
+    /// bitmap-domain `occupancy`; the former `Count` associated type is gone.
     public typealias Element = S.Element
 }
