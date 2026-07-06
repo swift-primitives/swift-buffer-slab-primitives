@@ -40,6 +40,7 @@ let package = Package(
         .package(url: "https://github.com/swift-primitives/swift-pair-primitives.git", branch: "main"),
         .package(url: "https://github.com/swift-primitives/swift-memory-heap-primitives.git", branch: "main"),
         .package(url: "https://github.com/swift-primitives/swift-memory-allocation-primitives.git", branch: "main"),
+        .package(url: "https://github.com/swift-primitives/swift-memory-small-primitives.git", branch: "main"),
     ],
     targets: [
 
@@ -49,6 +50,7 @@ let package = Package(
             dependencies: [
                 .product(name: "Buffer Primitive", package: "swift-buffer-primitives"),
                 .product(name: "Growth Primitives", package: "swift-growth-primitives"),
+                .product(name: "Memory Allocator Protocol Primitives", package: "swift-memory-allocation-primitives"),
                 .product(name: "Buffer Protocol Primitives", package: "swift-buffer-primitives"),
                 .product(name: "Storage Contiguous Primitives", package: "swift-storage-primitives"),
                 .product(name: "Storage Contiguous Primitives", package: "swift-storage-primitives"),
@@ -73,6 +75,7 @@ let package = Package(
                 "Buffer Slab Primitive",
                 .product(name: "Buffer Primitive", package: "swift-buffer-primitives"),
                 .product(name: "Growth Primitives", package: "swift-growth-primitives"),
+                .product(name: "Memory Allocator Protocol Primitives", package: "swift-memory-allocation-primitives"),
                 .product(name: "Buffer Protocol Primitives", package: "swift-buffer-primitives"),
                 .product(name: "Storage Contiguous Primitives", package: "swift-storage-primitives"),
                 .product(name: "Storage Contiguous Primitives", package: "swift-storage-primitives"),
@@ -210,11 +213,11 @@ let package = Package(
         // MARK: - Tests
         .testTarget(
             name: "Buffer Slab Primitives Tests",
-            dependencies: ["Buffer Slab Primitives", "Buffer Slab Primitives Test Support", .product(name: "Memory Allocator Primitive", package: "swift-memory-allocation-primitives")]
+            dependencies: ["Buffer Slab Primitives", "Buffer Slab Primitives Test Support", .product(name: "Memory Allocator Primitive", package: "swift-memory-allocation-primitives"), .product(name: "Memory Small Primitives", package: "swift-memory-small-primitives")]
         ),
         .testTarget(
             name: "Buffer Slab Bounded Primitives Tests",
-            dependencies: ["Buffer Slab Bounded Primitives", "Buffer Slab Primitives Test Support", .product(name: "Memory Allocator Primitive", package: "swift-memory-allocation-primitives")]
+            dependencies: ["Buffer Slab Bounded Primitives", "Buffer Slab Primitives Test Support", .product(name: "Memory Allocator Primitive", package: "swift-memory-allocation-primitives"), .product(name: "Memory Small Primitives", package: "swift-memory-small-primitives")]
         ),
         .testTarget(
             name: "Buffer Slab Inline Primitives Tests",

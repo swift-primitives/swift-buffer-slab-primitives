@@ -1,6 +1,7 @@
 import Affine_Primitives_Standard_Library_Integration
 public import Bit_Vector_Bounded_Primitives
 public import Memory_Allocator_Primitive
+public import Memory_Allocator_Protocol_Primitives
 import Ordinal_Primitives_Standard_Library_Integration
 public import Sequence_Primitives
 public import Storage_Contiguous_Primitives
@@ -8,14 +9,17 @@ public import Storage_Contiguous_Primitives
 // MARK: - Extensions for Slab (declared in Core)
 
 extension Buffer.Slab where S: ~Copyable {
-    /// Creates a growable heap-backed slab buffer with at least the given capacity.
+    /// Creates a growable slab buffer with at least the given capacity (any growable column).
     ///
-    /// The common-tower instantiation (`S == Storage<Memory.Allocator<Memory.Heap>>.Contiguous<S.Element>`); other
-    /// substrates construct their storage and use `init(header:storage:)`-style
+    /// Allocation-generic ([DS-029] form 2): pinned to the column over any
+    /// `Resource: Memory.Growable` — `Memory.Heap` (dense heap) and `Memory.Small<n>`
+    /// (inline⊕heap spill) compose uniformly; `Memory.Inline` is correctly excluded (it does
+    /// not conform `Memory.Growable`, so `create` — and this init — does not exist for it).
+    /// Other substrates construct their storage and use `init(header:storage:)`-style
     /// wiring through their own factories.
     @inlinable
-    public init<E: ~Copyable>(minimumCapacity: Index<E>.Count) where S == Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E> {
-        let storage = Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E>.create(minimumCapacity: minimumCapacity)
+    public init<E: ~Copyable, Resource: Memory.Growable & ~Copyable>(minimumCapacity: Index<E>.Count) where S == Storage<Memory.Allocator<Resource>>.Contiguous<E> {
+        let storage = S.create(minimumCapacity: minimumCapacity)
         self.init(
             header: Self.Header(capacity: storage.capacity.retag(Bit.self)),
             storage: storage

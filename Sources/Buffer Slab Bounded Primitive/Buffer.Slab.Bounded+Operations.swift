@@ -1,6 +1,7 @@
 import Affine_Primitives_Standard_Library_Integration
 public import Bit_Vector_Bounded_Primitives
 public import Memory_Allocator_Primitive
+public import Memory_Allocator_Protocol_Primitives
 import Ordinal_Primitives_Standard_Library_Integration
 public import Storage_Contiguous_Primitives
 
@@ -8,13 +9,15 @@ public import Storage_Contiguous_Primitives
 
 extension Buffer.Slab.Bounded where S: ~Copyable {
 
-    /// Creates a bounded slab buffer with at least the given capacity.
+    /// Creates a bounded slab buffer with at least the given capacity (any growable column).
     ///
-    /// The common-tower instantiation (`S == Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E>`); actual capacity
-    /// comes from `storage.capacity` per H6.
+    /// Allocation-generic ([DS-029] form 2): pinned over any `Resource: Memory.Growable`, so
+    /// `Memory.Heap` and `Memory.Small<n>`-leaf bounded slabs construct uniformly (`Memory.Inline`
+    /// is fenced out — it does not conform `Memory.Growable`). Actual capacity comes from
+    /// `storage.capacity` per H6.
     @inlinable
-    public init<E: ~Copyable>(minimumCapacity: Index<E>.Count) where S == Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E> {
-        let storage = Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E>.create(minimumCapacity: minimumCapacity)
+    public init<E: ~Copyable, Resource: Memory.Growable & ~Copyable>(minimumCapacity: Index<E>.Count) where S == Storage<Memory.Allocator<Resource>>.Contiguous<E> {
+        let storage = S.create(minimumCapacity: minimumCapacity)
         self.init(
             header: Buffer.Slab.Header(capacity: storage.capacity.retag(Bit.self)),
             storage: storage

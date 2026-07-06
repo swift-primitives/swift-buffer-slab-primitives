@@ -2,7 +2,7 @@ import Affine_Primitives_Standard_Library_Integration
 public import Bit_Vector_Bounded_Primitives
 import Index_Primitives
 public import Memory_Allocator_Primitive
-public import Memory_Heap_Primitives
+public import Memory_Allocator_Protocol_Primitives
 import Ordinal_Primitives_Standard_Library_Integration
 public import Storage_Contiguous_Primitives
 
@@ -14,9 +14,9 @@ public import Storage_Contiguous_Primitives
 // occupancy-aware CoW choke is replaced by this explicit `clone()` — a fresh,
 // independent deep copy. Unlike a dense buffer, the slab copies ONLY the occupied
 // slots (the bitmap is the source of truth; unoccupied slots hold no live element
-// to copy). Heap-pinned (the common tower) because building a fresh substrate
-// requires the concrete `Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E>.create`
-// allocation seam.
+// to copy). Allocation-generic ([DS-029] form 2) over any `Resource: Memory.Growable`:
+// building a fresh substrate uses `S.create`, so heap AND `Memory.Small<n>` columns clone
+// uniformly (`Memory.Inline` is fenced out — it does not conform `Memory.Growable`).
 
 extension Buffer.Slab where S: ~Copyable {
 
@@ -29,9 +29,9 @@ extension Buffer.Slab where S: ~Copyable {
     ///
     /// - Complexity: O(`occupancy`)
     @inlinable
-    public func clone<E>() -> Self where S == Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E>, E: Copyable {
+    public func clone<E, Resource: Memory.Growable & ~Copyable>() -> Self where S == Storage<Memory.Allocator<Resource>>.Contiguous<E>, E: Copyable {
         let capacity = storage.capacity
-        var fresh = Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E>.create(minimumCapacity: capacity)
+        var fresh = S.create(minimumCapacity: capacity)
         header.bitmap.ones.forEach { bitIndex in
             let index = bitIndex.retag(E.self)
             let element = storage[index]

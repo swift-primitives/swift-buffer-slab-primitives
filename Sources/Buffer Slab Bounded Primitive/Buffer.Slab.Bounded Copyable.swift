@@ -2,7 +2,7 @@ import Affine_Primitives_Standard_Library_Integration
 public import Bit_Vector_Bounded_Primitives
 import Index_Primitives
 public import Memory_Allocator_Primitive
-public import Memory_Heap_Primitives
+public import Memory_Allocator_Protocol_Primitives
 import Ordinal_Primitives_Standard_Library_Integration
 public import Storage_Contiguous_Primitives
 public import Store_Protocol_Primitives
@@ -27,7 +27,7 @@ extension Buffer.Slab.Bounded where S: ~Copyable, S.Element: Copyable {
     }
 }
 
-// MARK: - Explicit deep copy (the heap column)
+// MARK: - Explicit deep copy (any growable column)
 
 extension Buffer.Slab.Bounded where S: ~Copyable {
 
@@ -35,13 +35,14 @@ extension Buffer.Slab.Bounded where S: ~Copyable {
     /// storage, preserving the fixed capacity.
     ///
     /// Occupancy-aware: only the `header.bitmap.ones` slots are copied; vacant
-    /// slots are skipped.
+    /// slots are skipped. Allocation-generic ([DS-029] form 2) over any
+    /// `Resource: Memory.Growable` — heap and `Memory.Small<n>` columns clone uniformly.
     ///
     /// - Complexity: O(`occupancy`)
     @inlinable
-    public func clone<E>() -> Self where S == Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E>, E: Copyable {
+    public func clone<E, Resource: Memory.Growable & ~Copyable>() -> Self where S == Storage<Memory.Allocator<Resource>>.Contiguous<E>, E: Copyable {
         let capacity = storage.capacity
-        var fresh = Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E>.create(minimumCapacity: capacity)
+        var fresh = S.create(minimumCapacity: capacity)
         header.bitmap.ones.forEach { bitIndex in
             let index = bitIndex.retag(E.self)
             let element = storage[index]
@@ -58,14 +59,14 @@ extension Buffer.Slab.Bounded where S: ~Copyable {
     /// Creates a bounded slab buffer populated with the given elements.
     ///
     /// Elements are inserted at sequential slot indices starting from zero.
-    /// The common-tower instantiation (`S == Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E>`).
+    /// Allocation-generic ([DS-029] form 2) over any `Resource: Memory.Growable`.
     ///
     /// - Parameters:
     ///   - elements: The elements to populate the buffer with.
     ///   - capacity: The fixed capacity for the buffer.
     /// - Throws: ``Error/capacityExceeded`` if `elements.count` exceeds `capacity`.
     @inlinable
-    public init<E>(_ elements: [E], capacity: UInt) throws(Self.Error) where S == Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E> {
+    public init<E, Resource: Memory.Growable & ~Copyable>(_ elements: [E], capacity: UInt) throws(Self.Error) where S == Storage<Memory.Allocator<Resource>>.Contiguous<E> {
         guard elements.count <= Int(capacity) else { throw .capacityExceeded }
         var buffer = Self(minimumCapacity: Index<E>.Count(Cardinal(capacity)))
         for (i, element) in elements.enumerated() {
