@@ -6,8 +6,8 @@ import Memory_Heap_Primitives
 import Storage_Contiguous_Primitives
 import Testing
 
-@Suite("Buffer.Slab Static Operations")
-struct SlabStaticTests {
+@Suite
+struct `Buffer.Slab Static Operations` {
 
     @Test
     func `insert and remove`() {

@@ -15,8 +15,8 @@ import Testing
 // conform `Memory.Growable`). Column under test: `Memory.Small<64>` (64-byte inline budget = 8
 // `Int` slots).
 
-@Suite("Buffer.Slab — DS-029 Small-column probe")
-struct SlabSmallColumnProbeTests {
+@Suite
+struct `Buffer.Slab — DS-029 Small-column probe` {
 
     typealias SmallColumn = Storage<Memory.Allocator<Memory.Small<64>>>.Contiguous<Int>
 

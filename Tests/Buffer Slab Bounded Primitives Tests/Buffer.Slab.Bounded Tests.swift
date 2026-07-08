@@ -5,8 +5,8 @@ import Memory_Heap_Primitives
 import Storage_Contiguous_Primitives
 import Testing
 
-@Suite("Buffer.Slab.Bounded")
-struct SlabBoundedTests {
+@Suite
+struct `Buffer.Slab.Bounded` {
 
     @Test
     func `insert and remove at specific slots`() {

@@ -6,8 +6,8 @@ import Memory_Heap_Primitives
 import Storage_Contiguous_Primitives
 import Testing
 
-@Suite("Buffer.Slab.Header")
-struct SlabHeaderTests {
+@Suite
+struct `Buffer.Slab.Header` {
 
     @Test
     func `init creates empty bitmap`() {

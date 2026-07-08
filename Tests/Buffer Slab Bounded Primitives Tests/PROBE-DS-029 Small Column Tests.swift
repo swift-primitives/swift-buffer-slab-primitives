@@ -12,8 +12,8 @@ import Testing
 // slab — `Buffer<Storage<Memory.Allocator<Memory.Small<64>>>.Contiguous<Int>>.Slab.Bounded` —
 // is now expressible: construction + insert/remove + occupancy walk, plus array-init and clone.
 
-@Suite("Buffer.Slab.Bounded — DS-029 Small-column probe")
-struct SlabBoundedSmallColumnProbeTests {
+@Suite
+struct `Buffer.Slab.Bounded — DS-029 Small-column probe` {
 
     typealias SmallColumn = Storage<Memory.Allocator<Memory.Small<64>>>.Contiguous<Int>
 

@@ -26,45 +26,8 @@ extension Buffer.Slab where S: ~Copyable {
     /// copy is obtained explicitly via ``clone()``.
     public struct Bounded: ~Copyable {
 
-        // MARK: - The relocated cleanup oracle
-
-        @usableFromInline
-        internal final class Box {
-            @usableFromInline
-            internal var header: Header
-
-            @usableFromInline
-            internal var storage: S
-
-            @usableFromInline
-            internal init(header: Header, storage: consuming S) {
-                self.header = header
-                self.storage = storage
-            }
-
-            deinit {
-                header.bitmap.ones.forEach { bitIndex in
-                    _ = storage.move(at: bitIndex.retag(S.Element.self))
-                }
-            }
-        }
-
         @usableFromInline
         internal var box: Box
-
-        /// In-place view of the box's header (see ``Buffer/Slab/header``).
-        @usableFromInline
-        internal var header: Header {
-            @inlinable _read { yield box.header }
-            @inlinable _modify { yield &box.header }
-        }
-
-        /// In-place view of the box's storage substrate (see ``Buffer/Slab/header``).
-        @usableFromInline
-        internal var storage: S {
-            @inlinable _read { yield box.storage }
-            @inlinable _modify { yield &box.storage }
-        }
 
         @inlinable
         package init(
@@ -73,6 +36,47 @@ extension Buffer.Slab where S: ~Copyable {
         ) {
             self.box = Box(header: header, storage: storage)
         }
+    }
+}
+
+extension Buffer.Slab.Bounded where S: ~Copyable {
+    // MARK: - The relocated cleanup oracle
+
+    @usableFromInline
+    internal final class Box {
+        @usableFromInline
+        internal var header: Buffer.Slab.Header
+
+        @usableFromInline
+        internal var storage: S
+
+        @usableFromInline
+        internal init(header: Buffer.Slab.Header, storage: consuming S) {
+            self.header = header
+            self.storage = storage
+        }
+
+        deinit {
+            header.bitmap.ones.forEach { bitIndex in
+                _ = storage.move(at: bitIndex.retag(S.Element.self))
+            }
+        }
+    }
+}
+
+extension Buffer.Slab.Bounded where S: ~Copyable {
+    /// In-place view of the box's header (see ``Buffer/Slab/header``).
+    @usableFromInline
+    internal var header: Buffer.Slab.Header {
+        @inlinable _read { yield box.header }
+        @inlinable _modify { yield &box.header }
+    }
+
+    /// In-place view of the box's storage substrate (see ``Buffer/Slab/header``).
+    @usableFromInline
+    internal var storage: S {
+        @inlinable _read { yield box.storage }
+        @inlinable _modify { yield &box.storage }
     }
 }
 

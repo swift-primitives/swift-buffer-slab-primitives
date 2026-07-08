@@ -15,8 +15,8 @@ import Testing
 // analog, are dropped. (Holding patch: file name retained for minimal churn; the intent is
 // now clone + teardown, not CoW. See HANDOFF-storage-inline-finalization.md.)
 
-@Suite("Buffer.Slab Clone & Teardown")
-struct SlabCloneTests {
+@Suite
+struct `Buffer.Slab Clone & Teardown` {
 
     // MARK: - Buffer.Slab.clone()
 

@@ -49,6 +49,9 @@ private func idx4(_ slot: Int) -> Index<Int> { bitIndex(slot).retag(Int.self) }
 // Single-free observation (mirrors the package's own Ledger/Counted harness).
 private final class Ledger: @unchecked Sendable {
     private var _counts: [Int: Int] = [:]
+}
+
+extension Ledger {
     func record(_ id: Int) { _counts[id, default: 0] += 1 }
     var total: Int { _counts.values.reduce(0, +) }
     var maxPerID: Int { _counts.values.max() ?? 0 }
@@ -65,8 +68,8 @@ private struct Counted: ~Copyable {
 
 // MARK: - PC: the real buffer-owned class Box (positive control)
 
-@Suite("OccupancyPlacementProbe - PC (real Buffer.Slab.Inline)")
-struct ProbePC {
+@Suite
+struct `OccupancyPlacementProbe - PC (real Buffer.Slab.Inline)` {
     @Test
     func `PC real box Inline4 insert@2 under -O`() {
         var buffer = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Inline<4>()
@@ -100,6 +103,9 @@ private final class T1Box {
         self.header = .init()
         self.storage = .init()
     }
+}
+
+extension T1Box {
     // Mirrors the production Box.insert exactly (#1 survives; #2/#3 elided in the real box).
     func insert(_ value: Int, at slot: Int) {
         storage.initialize(at: idx4(slot), to: value)  // #1 raw-pointer cell write
@@ -117,6 +123,9 @@ private struct T1Leaf: ~Copyable {
         self.header = .init()
         self.storage = .init()
     }
+}
+
+extension T1Leaf {
     // SAME body as T1Box — the ONLY difference between T1Box and T1Leaf is class vs struct.
     mutating func insert(_ value: Int, at slot: Int) {
         storage.initialize(at: idx4(slot), to: value)  // #1
@@ -127,8 +136,8 @@ private struct T1Leaf: ~Copyable {
     func isOccupied(at slot: Int) -> Bool { header.isOccupied(at: bitIndex(slot)) }
 }
 
-@Suite("OccupancyPlacementProbe - T1 (real Store.Inline: class vs struct)")
-struct ProbeT1 {
+@Suite
+struct `OccupancyPlacementProbe - T1 (real Store.Inline: class vs struct)` {
     @Test
     func `T1Box class over real Store.Inline insert@2 under -O`() {
         let box = T1Box()
@@ -209,8 +218,8 @@ private struct T2Leaf<Element: ~Copyable>: ~Copyable {
     }
 }
 
-@Suite("OccupancyPlacementProbe - T0/T2 (hand-built leaf end-shape)")
-struct ProbeT0T2 {
+@Suite
+struct `OccupancyPlacementProbe - T0/T2 (hand-built leaf end-shape)` {
     @Test
     func `T0Box hand-built class insert@2 under -O (context)`() {
         let box = T0Box<Int>()

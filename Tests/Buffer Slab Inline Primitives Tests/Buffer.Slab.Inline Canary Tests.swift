@@ -25,18 +25,15 @@ import Testing
 /// Regression test: Storage.Inline deinit cleans up elements through
 /// cross-module member destruction chain.
 @Suite(
-    "Buffer.Slab.Inline - Deinit",
     .disabled(
         if: !_isDebugAssertConfiguration(),
         "release-blocked: swift-issue-inlinearray-class-field-write-elision; pending HANDOFF-sparse-occupancy-placement.md"
     )
 )
-struct SlabInlineDeinitTests {
+struct `Buffer.Slab.Inline - Deinit` {
 
     final class Tracker: @unchecked Sendable {
         private var _storage: [Int] = []
-        var deinitOrder: [Int] { _storage }
-        func append(_ id: Int) { _storage.append(id) }
     }
 
     struct TrackedElement: ~Copyable {
@@ -71,6 +68,11 @@ struct SlabInlineDeinitTests {
     }
 }
 
+extension `Buffer.Slab.Inline - Deinit`.Tracker {
+    var deinitOrder: [Int] { _storage }
+    func append(_ id: Int) { _storage.append(id) }
+}
+
 // RELEASE-GUARD (swift-issue-inlinearray-class-field-write-elision): runs in DEBUG, skips
 // under `-O` (the reconstructed single-free harness — passes in release only by accident on
 // contiguous inserts; sparse occupancy is release-broken). Pending HANDOFF-sparse-occupancy-placement.md.
@@ -83,20 +85,15 @@ struct SlabInlineDeinitTests {
 /// proved tracked init double-frees in release, so the untracked-ledger discipline is what
 /// this gate protects.
 @Suite(
-    "Buffer.Slab.Inline - Single-Free",
     .disabled(
         if: !_isDebugAssertConfiguration(),
         "release-blocked: swift-issue-inlinearray-class-field-write-elision; pending HANDOFF-sparse-occupancy-placement.md"
     )
 )
-struct SlabInlineSingleFreeTests {
+struct `Buffer.Slab.Inline - Single-Free` {
 
     final class Ledger: @unchecked Sendable {
         private var _counts: [Int: Int] = [:]
-        func record(_ id: Int) { _counts[id, default: 0] += 1 }
-        var total: Int { _counts.values.reduce(0, +) }
-        var maxPerID: Int { _counts.values.max() ?? 0 }
-        var distinctIDs: Int { _counts.count }
     }
 
     struct Counted: ~Copyable {
@@ -158,13 +155,20 @@ struct SlabInlineSingleFreeTests {
     }
 }
 
+extension `Buffer.Slab.Inline - Single-Free`.Ledger {
+    func record(_ id: Int) { _counts[id, default: 0] += 1 }
+    var total: Int { _counts.values.reduce(0, +) }
+    var maxPerID: Int { _counts.values.max() ?? 0 }
+    var distinctIDs: Int { _counts.count }
+}
+
 /// DIAGNOSTIC — release-miscompile isolation.
 ///
 /// Mutates a LOCAL `Header.Static` (its inline `Bit.Vector.Static` bitmap) with NO box /
 /// `.Inline` layering. If THIS fails under `-O`, the inline-bitmap mutation itself is the
 /// miscompile; if it passes, the box interaction is.
-@Suite("Buffer.Slab.Header.Static - Release Isolation")
-struct HeaderStaticReleaseIsolationTests {
+@Suite
+struct `Buffer.Slab.Header.Static - Release Isolation` {
     @Test
     func `local Header.Static bitmap set persists`() {
         var h = Buffer<Storage<Memory.Allocator<Memory.Heap>>.Contiguous<Int>>.Slab.Header.Static<8>()

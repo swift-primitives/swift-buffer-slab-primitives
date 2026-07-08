@@ -13,13 +13,12 @@ import Testing
 // occupancy-placement ruling (~/Developer/.handoffs/HANDOFF-sparse-occupancy-placement.md).
 // (`_isDebugAssertConfiguration()` is true under `-Onone`/debug, false under `-O`/release.)
 @Suite(
-    "Buffer.Slab.Inline",
     .disabled(
         if: !_isDebugAssertConfiguration(),
         "release-blocked: swift-issue-inlinearray-class-field-write-elision; .Inline release-broken pending HANDOFF-sparse-occupancy-placement.md"
     )
 )
-struct SlabBoundedInlineTests {
+struct `Buffer.Slab.Inline` {
 
     @Test
     func `insert and remove at specific slots`() throws {

@@ -11,13 +11,12 @@ import Testing
 // by luck — runs in DEBUG, skips under `-O`, pending HANDOFF-sparse-occupancy-placement.md.
 // (`.Small`'s heap arm is `Buffer.Slab`, covered in release by the base "Buffer.Slab" suites.)
 @Suite(
-    "Buffer.Slab.Small",
     .disabled(
         if: !_isDebugAssertConfiguration(),
         "release-blocked: swift-issue-inlinearray-class-field-write-elision (inline arm); pending HANDOFF-sparse-occupancy-placement.md"
     )
 )
-struct SlabSmallTests {
+struct `Buffer.Slab.Small` {
 
     @Test
     func `init creates empty inline slab`() {
