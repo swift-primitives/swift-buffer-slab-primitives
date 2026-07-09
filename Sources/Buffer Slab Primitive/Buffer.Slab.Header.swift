@@ -29,7 +29,7 @@ extension Buffer.Slab where S: ~Copyable {
         /// Creates a header with the given slot capacity, all vacant.
         @inlinable
         public init(capacity: Bit.Index.Count) {
-            do {
+            do throws(Bit.Vector.Bounded.Error) {
                 self.bitmap = try Bit.Vector.Bounded(capacity: capacity, count: capacity)
             } catch {
                 preconditionFailure(
