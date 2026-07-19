@@ -67,8 +67,20 @@ private struct Counted: ~Copyable {
 }
 
 // MARK: - PC: the real buffer-owned class Box (positive control)
-
-@Suite
+//
+// RE-VERIFIED 2026-07-19 (fable-448 F-001): this suite got its answer — the real production
+// `Box.insert` still elides the bitmap write under `-O` (occupancy=0), exactly like `T1Box`
+// below. As the fix for F-001, `Box`'s mutations now `precondition` on
+// `_isDebugAssertConfiguration()` and trap in release, so re-running this suite under
+// `swift test -c release` would abort the whole test process rather than print a diagnostic.
+// Disabled under `-O` for that reason; the T0/T1/T2 suites below use hand-built types that are
+// NOT routed through the guarded production `Box`, so they remain safely runnable in release.
+@Suite(
+    .disabled(
+        if: !_isDebugAssertConfiguration(),
+        "real Box.insert now preconditions in release (fable-448 F-001 fix) — would abort the process, not fail a test"
+    )
+)
 struct `OccupancyPlacementProbe - PC (real Buffer.Slab.Inline)` {
     @Test
     func `PC real box Inline4 insert@2 under -O`() {
