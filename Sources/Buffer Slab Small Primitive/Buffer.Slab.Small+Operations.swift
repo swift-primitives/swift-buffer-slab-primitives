@@ -65,6 +65,11 @@ extension Buffer.Slab.Small where S: ~Copyable {
     }
 
     /// Whether a specific slot is occupied.
+    ///
+    /// fable-448 F-002: while in `.inline` mode, a slot at or past `inlineCapacity` can never
+    /// be occupied (`insert` always spills before writing there — see `insert(_:at:)`), so it
+    /// reads as vacant (`false`) rather than trapping. This keeps `isOccupied` total over every
+    /// `Bit.Index`, matching `firstVacant()`'s own range (which never yields such a slot).
     @inlinable
     public func isOccupied(at slot: Bit.Index) -> Bool {
         switch _storage {
@@ -74,7 +79,7 @@ extension Buffer.Slab.Small where S: ~Copyable {
 
         case .inline(let buf):
             guard let bounded = Bit.Index.Bounded<inlineCapacity>(slot) else {
-                preconditionFailure("slot exceeds inlineCapacity")
+                return false
             }
             return buf.isOccupied(at: bounded)
         }
@@ -93,8 +98,14 @@ extension Buffer.Slab.Small where S: ~Copyable {
 
     /// Inserts an element at the given slot.
     ///
-    /// If inline storage is full, spills to heap automatically using moves.
-    /// The heap spill target is the common-tower `Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E>` substrate.
+    /// If inline storage is full, or `slot` falls outside the inline range, spills to heap
+    /// automatically using moves. The heap spill target is the common-tower
+    /// `Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E>` substrate.
+    ///
+    /// fable-448 F-002: the prior predicate spilled on occupancy alone (`!buf.isFull`), so a
+    /// sparse `slot >= inlineCapacity` on an otherwise near-empty buffer bypassed the spill and
+    /// reached the fixed inline store directly — an out-of-bounds write. Spilling is now also
+    /// forced whenever `slot` itself does not fit `Bit.Index.Bounded<inlineCapacity>`.
     ///
     /// - Precondition: The slot is not occupied.
     @inlinable
@@ -105,12 +116,12 @@ extension Buffer.Slab.Small where S: ~Copyable {
             self = Self(_storage: .heap(consume buf))
 
         case .inline(var buf):
-            if !buf.isFull {
-                buf.insert(consume element, at: slot)
+            if !buf.isFull, let bounded = Bit.Index.Bounded<inlineCapacity>(slot) {
+                buf.insert(consume element, at: bounded)
                 self = Self(_storage: .inline(consume buf))
             } else {
                 self = Self(_storage: .inline(consume buf))
-                _spillToHeapMoving()
+                _spillToHeapMoving(coveringAtLeast: slot)
                 guard case .heap(var buf) = _storage else { fatalError("expected heap mode after spill") }
                 buf.insert(consume element, at: slot)
                 self = Self(_storage: .heap(consume buf))
@@ -119,6 +130,13 @@ extension Buffer.Slab.Small where S: ~Copyable {
     }
 
     /// Removes and returns the element at the given slot.
+    ///
+    /// fable-448 F-002: bounds-checked in `.inline` mode (was unchecked — a slot at or past
+    /// `inlineCapacity` reached the fixed inline store's unbounded `remove` directly, an
+    /// out-of-bounds read/move). A slot past `inlineCapacity` was never occupiable while
+    /// inline (`insert` always spills before writing there), so this is a caller-contract
+    /// violation, not a recoverable case — it traps, matching `isOccupied`'s documented
+    /// precondition ("the slot is occupied").
     ///
     /// - Precondition: The slot is occupied.
     @inlinable
@@ -130,13 +148,18 @@ extension Buffer.Slab.Small where S: ~Copyable {
             return element
 
         case .inline(var buf):
-            let element = buf.remove(at: slot)
+            guard let bounded = Bit.Index.Bounded<inlineCapacity>(slot) else {
+                preconditionFailure("slot exceeds inlineCapacity — never occupiable in inline mode")
+            }
+            let element = buf.remove(at: bounded)
             self = Self(_storage: .inline(consume buf))
             return element
         }
     }
 
     /// Replaces the element at the given slot and returns the old element.
+    ///
+    /// fable-448 F-002: bounds-checked in `.inline` mode — see `remove(at:)`.
     ///
     /// - Precondition: The slot is occupied.
     @inlinable
@@ -148,7 +171,10 @@ extension Buffer.Slab.Small where S: ~Copyable {
             return old
 
         case .inline(var buf):
-            let old = buf.update(at: slot, with: consume element)
+            guard let bounded = Bit.Index.Bounded<inlineCapacity>(slot) else {
+                preconditionFailure("slot exceeds inlineCapacity — never occupiable in inline mode")
+            }
+            let old = buf.update(at: bounded, with: consume element)
             self = Self(_storage: .inline(consume buf))
             return old
         }
@@ -176,15 +202,20 @@ extension Buffer.Slab.Small where S: ~Copyable {
     /// Moves inline elements to heap storage and activates heap mode.
     ///
     /// The heap spill target is the common-tower `Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E>` substrate.
+    ///
+    /// - Parameter slot: The slot the caller is about to insert at (possibly outside the inline
+    ///   range). fable-448 F-002: the new capacity is `max(slot + 1, inlineCapacity * 2)` — the
+    ///   normal doubling growth is not enough when a sparse `insert(at:)` names a slot past it.
     @usableFromInline
-    mutating func _spillToHeapMoving<E>() where S == Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E> {
+    mutating func _spillToHeapMoving<E>(coveringAtLeast slot: Bit.Index) where S == Storage<Memory.Allocator<Memory.Heap>>.Contiguous<E> {
         switch _storage {
         case .heap(let buf):
             self = Self(_storage: .heap(consume buf))
             return
 
         case .inline(var buf):
-            let newCapacity = Index<E>.Count(UInt(inlineCapacity * 2))
+            let requiredForSlot = Int(bitPattern: slot) + 1
+            let newCapacity = Index<E>.Count(UInt(Swift.max(requiredForSlot, inlineCapacity * 2)))
             var heap = Buffer.Slab(minimumCapacity: newCapacity)
 
             // [MOD-037]: drain the inline buffer through its PUBLIC slot API and re-insert

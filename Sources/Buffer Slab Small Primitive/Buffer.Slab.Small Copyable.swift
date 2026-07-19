@@ -1,4 +1,5 @@
 import Affine_Primitives_Standard_Library_Integration
+public import Finite_Bounded_Primitives
 import Ordinal_Primitives_Standard_Library_Integration
 
 // MARK: - Copyable Conformances for Slab.Small
@@ -13,6 +14,10 @@ extension Buffer.Slab.Small where S: ~Copyable, S.Element: Copyable {
 
     /// Reads the element at the given slot without removing it.
     ///
+    /// fable-448 F-002: bounds-checked in `.inline` mode — see `remove(at:)` in
+    /// `Buffer.Slab.Small+Operations.swift` for the rationale (a slot past `inlineCapacity`
+    /// was never occupiable while inline, so it traps rather than reading out-of-bounds).
+    ///
     /// - Precondition: The slot is occupied.
     @inlinable
     public func peek(at slot: Bit.Index) -> S.Element {
@@ -24,7 +29,10 @@ extension Buffer.Slab.Small where S: ~Copyable, S.Element: Copyable {
             return buf[slot]
 
         case .inline(let buf):
-            return buf.peek(at: slot)
+            guard let bounded = Bit.Index.Bounded<inlineCapacity>(slot) else {
+                preconditionFailure("slot exceeds inlineCapacity — never occupiable in inline mode")
+            }
+            return buf.peek(at: bounded)
         }
     }
 }
